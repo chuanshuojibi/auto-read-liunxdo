@@ -582,25 +582,38 @@ async function launchBrowserForUser(username, password, cookie = null) {
   }
 }
 async function login(page, username, password, retryCount = 3) {
-  // 使用XPath查询找到包含"登录"或"login"文本的按钮
+  const loginSelectorTimeout = parseInt(
+    process.env.LOGIN_SELECTOR_TIMEOUT_MS || "90000",
+    10
+  );
+  const usernameSelectors = [
+    "#login-account-name",
+    "#username",
+    "input[name='login']",
+    "input[name='username']",
+  ];
+  const passwordSelectors = [
+    "#login-account-password",
+    "#password",
+    "input[name='password']",
+  ];
+  const submitSelectors = ["#login-button", "button.login-button", "button[type='submit']"];
+
+  // 查找并点击“登录”入口（兼容中文、英文、大小写和 a/button 两种元素）
   let loginButtonFound = await page.evaluate(() => {
-    let loginButton = Array.from(document.querySelectorAll("button")).find(
-      (button) =>
-        button.textContent.includes("登录") ||
-        button.textContent.includes("login")
-    ); // 注意loginButton 变量在外部作用域中是无法被 page.evaluate 内部的代码直接修改的。page.evaluate 的代码是在浏览器环境中执行的，这意味着它们无法直接影响 Node.js 环境中的变量
-    // 如果没有找到，尝试根据类名查找
+    const nodes = Array.from(document.querySelectorAll("button, a, span"));
+    let loginButton = nodes.find((node) => {
+      const text = (node.textContent || "").trim().toLowerCase();
+      return text === "登录" || text === "login" || text.includes("登录") || text.includes("log in");
+    });
     if (!loginButton) {
       loginButton = document.querySelector(".login-button");
     }
     if (loginButton) {
       loginButton.click();
-      console.log("Login button clicked.");
-      return true; // 返回true表示找到了按钮并点击了
-    } else {
-      console.log("Login button not found.");
-      return false; // 返回false表示没有找到按钮
+      return true;
     }
+    return false;
   });
   if (!loginButtonFound) {
     if (loginUrl == "https://meta.appinn.net") {
@@ -621,37 +634,54 @@ async function login(page, username, password, retryCount = 3) {
       }
     }
   }
-  // 等待用户名输入框加载
-  await page.waitForSelector("#login-account-name");
+  // 等待用户名输入框加载（兼容不同站点/主题的输入框ID差异）
+  const usernameSelector = await page.waitForSelector(
+    usernameSelectors.join(", "),
+    {
+      timeout: loginSelectorTimeout,
+      visible: true,
+    }
+  );
+  const usernameSelectorUsed = await usernameSelector.evaluate(
+    (el) => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}`
+  );
+  console.log("登录用户名输入框选择器匹配:", usernameSelectorUsed);
   // 模拟人类在找到输入框后的短暂停顿
   await delayClick(1000); // 延迟500毫秒
   // 清空输入框并输入用户名
-  await page.click("#login-account-name", { clickCount: 3 });
-  await page.type("#login-account-name", username, {
+  await usernameSelector.click({ clickCount: 3 });
+  await usernameSelector.type(username, {
     delay: 100,
   }); // 输入时在每个按键之间添加额外的延迟
   await delayClick(1000);
   // 等待密码输入框加载
-  // await page.waitForSelector("#login-account-password");
-  // 模拟人类在输入用户名后的短暂停顿
-  // delayClick; // 清空输入框并输入密码
-  await page.click("#login-account-password", { clickCount: 3 });
-  await page.type("#login-account-password", password, {
+  const passwordSelector = await page.waitForSelector(
+    passwordSelectors.join(", "),
+    {
+      timeout: loginSelectorTimeout,
+      visible: true,
+    }
+  );
+  await passwordSelector.click({ clickCount: 3 });
+  await passwordSelector.type(password, {
     delay: 100,
   });
 
   // 模拟人类在输入完成后思考的短暂停顿
   await delayClick(1000);
 
-  // 假设登录按钮的ID是'login-button'，点击登录按钮
-  await page.waitForSelector("#login-button");
+  // 等待登录按钮（兼容多个选择器）
+  const submitSelector = await page.waitForSelector(submitSelectors.join(", "), {
+    timeout: loginSelectorTimeout,
+    visible: true,
+  });
   await delayClick(1000); // 模拟在点击登录按钮前的短暂停顿
-  await page.click("#login-button");
+  await submitSelector.click();
   try {
     await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded" }), // 等待 页面跳转 DOMContentLoaded 事件
       // 去掉上面一行会报错：Error: Execution context was destroyed, most likely because of a navigation. 可能是因为之后没等页面加载完成就执行了脚本
-      page.click("#login-button", { force: true }), // 点击登录按钮触发跳转
+      submitSelector.click({ force: true }), // 点击登录按钮触发跳转
     ]); //注意如果登录失败，这里会一直等待跳转，导致脚本执行失败 这点四个月之前你就发现了结果今天又遇到（有个用户遇到了https://linux.do/t/topic/169209/82），但是你没有在这个报错你提示我8.5
   } catch (error) {
     const alertError = await page.$(".alert.alert-error");

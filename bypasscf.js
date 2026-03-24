@@ -633,20 +633,25 @@ async function login(page, username, password, retryCount = 3) {
       );
     }
   }
+  const waitForLoginElement = async (selectors, fieldLabel) => {
+    try {
+      return await page.waitForSelector(selectors.join(", "), {
+        timeout: loginSelectorTimeout,
+        visible: true,
+      });
+    } catch (error) {
+      throw new Error(
+        `登录表单不可用：未找到${fieldLabel}。失败用户 ${maskUsername(
+          username
+        )}，错误信息：${error.message || error}`
+      );
+    }
+  };
   // 等待用户名输入框加载（兼容不同站点/主题的输入框ID差异）
-  let usernameSelector;
-  try {
-    usernameSelector = await page.waitForSelector(usernameSelectors.join(", "), {
-      timeout: loginSelectorTimeout,
-      visible: true,
-    });
-  } catch (error) {
-    throw new Error(
-      `登录表单不可用：未找到用户名输入框。失败用户 ${maskUsername(
-        username
-      )}，错误信息：${error.message || error}`
-    );
-  }
+  const usernameSelector = await waitForLoginElement(
+    usernameSelectors,
+    "用户名输入框"
+  );
   const usernameSelectorUsed = await usernameSelector.evaluate(
     (el) => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ""}`
   );
@@ -660,19 +665,10 @@ async function login(page, username, password, retryCount = 3) {
   }); // 输入时在每个按键之间添加额外的延迟
   await delayClick(1000);
   // 等待密码输入框加载
-  let passwordSelector;
-  try {
-    passwordSelector = await page.waitForSelector(passwordSelectors.join(", "), {
-      timeout: loginSelectorTimeout,
-      visible: true,
-    });
-  } catch (error) {
-    throw new Error(
-      `登录表单不可用：未找到密码输入框。失败用户 ${maskUsername(
-        username
-      )}，错误信息：${error.message || error}`
-    );
-  }
+  const passwordSelector = await waitForLoginElement(
+    passwordSelectors,
+    "密码输入框"
+  );
   await passwordSelector.click({ clickCount: 3 });
   await passwordSelector.type(password, {
     delay: 100,
@@ -682,19 +678,10 @@ async function login(page, username, password, retryCount = 3) {
   await delayClick(1000);
 
   // 等待登录按钮（兼容多个选择器）
-  let submitSelector;
-  try {
-    submitSelector = await page.waitForSelector(submitSelectors.join(", "), {
-      timeout: loginSelectorTimeout,
-      visible: true,
-    });
-  } catch (error) {
-    throw new Error(
-      `登录表单不可用：未找到提交按钮。失败用户 ${maskUsername(
-        username
-      )}，错误信息：${error.message || error}`
-    );
-  }
+  const submitSelector = await waitForLoginElement(
+    submitSelectors,
+    "提交按钮"
+  );
   await delayClick(1000); // 模拟在点击登录按钮前的短暂停顿
   await submitSelector.click();
   try {
